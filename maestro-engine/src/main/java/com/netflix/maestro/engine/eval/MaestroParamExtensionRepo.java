@@ -22,20 +22,15 @@ import com.netflix.maestro.utils.Checks;
 import com.netflix.sel.ext.Extension;
 import com.netflix.sel.type.SelUtilFunc;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 import lombok.extern.slf4j.Slf4j;
 
 /** A repository to hold maestro param extensions for the param evaluation. */
 @Slf4j
 public class MaestroParamExtensionRepo {
-  private static final int THREAD_NUM = 3;
   private final ThreadLocal<Extension> repos = new ThreadLocal<>();
   private final MaestroStepInstanceDao stepInstanceDao;
   private final ObjectMapper objectMapper;
   private final String env;
-  private ExecutorService executor;
 
   /** Constructor. */
   public MaestroParamExtensionRepo(
@@ -52,7 +47,6 @@ public class MaestroParamExtensionRepo {
       InstanceWrapper instanceWrapper) {
     Extension ext =
         new MaestroParamExtension(
-            executor,
             stepInstanceDao,
             env,
             allStepOutputData,
@@ -76,16 +70,11 @@ public class MaestroParamExtensionRepo {
   void initialize() {
     LOG.info("Initializing ExtensionRepo within Spring boot...");
     SelUtilFunc.register("toJson", this::toJsonExtFunction);
-    executor = Executors.newFixedThreadPool(THREAD_NUM);
-    ((ThreadPoolExecutor) executor).prestartAllCoreThreads();
   }
 
   /** Gracefully shutdown the ExtensionRepo. */
-  @SuppressWarnings({"PMD.NullAssignment"})
   void shutdown() {
     LOG.info("Shutdown ExtensionRepo within Spring boot...");
-    executor.shutdown();
-    executor = null;
   }
 
   // Add a SEL function to convert the input object to a JSON string. If there are more, will

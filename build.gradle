@@ -38,6 +38,14 @@ allprojects {
         }
     }
 
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs += ['--enable-preview']
+    }
+
+    tasks.withType(Test).configureEach {
+        jvmArgs += ['--enable-preview']
+    }
+
     dependencyLocking {
         lockAllConfigurations()
     }

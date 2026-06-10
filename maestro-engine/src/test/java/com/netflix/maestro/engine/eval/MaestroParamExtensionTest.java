@@ -16,6 +16,8 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import com.netflix.maestro.AssertHelper;
@@ -45,7 +47,6 @@ import com.netflix.maestro.models.signal.SignalParamValue;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Executors;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -69,7 +70,6 @@ public class MaestroParamExtensionTest extends MaestroEngineBaseTest {
   public void before() throws Exception {
     paramExtension =
         new MaestroParamExtension(
-            Executors.newSingleThreadExecutor(),
             stepInstanceDao,
             "prod",
             allStepOutputData,
@@ -495,5 +495,52 @@ public class MaestroParamExtensionTest extends MaestroEngineBaseTest {
         MaestroInternalError.class,
         "getFromSignalDependency throws an exception for ",
         () -> paramExtension.getFromSignalDependency("3", "param1"));
+  }
+
+  @Test
+  public void testGetFromSubworkflowWrapsDaoException() throws Exception {
+    when(instanceWrapper.getInitiator()).thenReturn(new ManualInitiator());
+    StepRuntimeSummary summary =
+        loadObject(TEST_SUBWORKFLOW_STEP_RUNTIME_SUMMARY, StepRuntimeSummary.class);
+    Map<String, Object> stepData =
+        Collections.singletonMap("maestro_step_runtime_summary", summary);
+    when(allStepOutputData.get("foreach_step")).thenReturn(stepData);
+    RuntimeException daoFailure = new RuntimeException("db unavailable");
+    when(stepInstanceDao.getStepInstanceView(anyString(), anyLong(), anyString()))
+        .thenThrow(daoFailure);
+
+    AssertHelper.assertThrows(
+        "Subworkflow lookup failure must surface as MaestroInternalError",
+        MaestroInternalError.class,
+        "getFromSubworkflow throws an exception for",
+        () -> paramExtension.getFromSubworkflow("foreach_step", "child_step", "p"));
+  }
+
+  @Test
+  public void testWithTimeoutWhenDaoExceedsDeadline() throws Exception {
+    int savedTimeout = MaestroParamExtension.TIMEOUT_IN_MILLIS;
+    MaestroParamExtension.TIMEOUT_IN_MILLIS = 100;
+    try {
+      when(instanceWrapper.getInitiator()).thenReturn(new ManualInitiator());
+      StepRuntimeSummary summary =
+          loadObject(TEST_STEP_RUNTIME_SUMMARY, StepRuntimeSummary.class);
+      when(allStepOutputData.get("step1"))
+          .thenReturn(Collections.singletonMap("maestro_step_runtime_summary", summary));
+      doAnswer(
+              invocation -> {
+                Thread.sleep(2000);
+                return null;
+              })
+          .when(stepInstanceDao)
+          .getNextUniqueId();
+
+      AssertHelper.assertThrows(
+          "Virtual-thread scoped call must respect the deadline",
+          MaestroInternalError.class,
+          "timed out after",
+          () -> paramExtension.nextUniqueId());
+    } finally {
+      MaestroParamExtension.TIMEOUT_IN_MILLIS = savedTimeout;
+    }
   }
 }

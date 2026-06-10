@@ -1,6 +1,9 @@
 spring:
   application:
     name: maestro
+  threads:
+    virtual:
+      enabled: true
   autoconfigure:
     exclude:
       - com.netflix.maestro.engine.autoconfigure.AwsConfiguration

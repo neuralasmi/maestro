@@ -36,11 +36,13 @@ import com.netflix.maestro.models.signal.SignalDependencies;
 import com.netflix.maestro.utils.Checks;
 import com.netflix.maestro.utils.ObjectHelper;
 import com.netflix.sel.ext.AbstractParamExtension;
+import java.time.Instant;
 import java.util.Map;
 import java.util.OptionalLong;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Callable;
+import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import lombok.AllArgsConstructor;
 
 /**
@@ -51,7 +53,7 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 public class MaestroParamExtension extends AbstractParamExtension {
   private static final int RANDOM_JITTER_DELAY = 10;
-  private static final int TIMEOUT_IN_MILLIS = 90000;
+  static int TIMEOUT_IN_MILLIS = 90000;
   private static final String GET_INSTANCE_FIELD_ERROR_MESSAGE =
       "getFromInstance('%s') call can only be used to define a workflow parameter";
   static final Long DUMMY_VALIDATION_VALUE = 20220101L;
@@ -83,7 +85,6 @@ public class MaestroParamExtension extends AbstractParamExtension {
   /** Function to get the foreach metadata. */
   static final String GET_FROM_FOREACH = "getFromForeach";
 
-  private final ExecutorService executor;
   private final MaestroStepInstanceDao stepInstanceDao;
   private final String env;
   private final Map<String, Map<String, Object>> allStepOutputData;
@@ -154,25 +155,15 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromStep(String stepId, String paramName) {
-    try {
-      return executor
-          .submit(() -> fromStep(stepId, paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e, "getFromStep throws an exception for stepId=[%s], paramName=[%s]", stepId, paramName);
-    }
+    return withTimeout(
+        "getFromStep",
+        () -> fromStep(stepId, paramName),
+        "throws an exception for stepId=[%s], paramName=[%s]", stepId, paramName);
   }
 
   Object getFromStep(String fieldName) {
-    try {
-      return executor
-          .submit(() -> fromStep(fieldName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e, "getFromStep throws an exception fieldName=[%s]", fieldName);
-    }
+    return withTimeout(
+        "getFromStep", () -> fromStep(fieldName), "throws an exception fieldName=[%s]", fieldName);
   }
 
   private Object fromStep(String stepId, String paramName) {
@@ -213,14 +204,10 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromSignal(String paramName) {
-    try {
-      return executor
-          .submit(() -> fromSignal(paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e, "getFromSignal throws an exception for paramName=[%s]", paramName);
-    }
+    return withTimeout(
+        "getFromSignal",
+        () -> fromSignal(paramName),
+        "throws an exception for paramName=[%s]", paramName);
   }
 
   private Object fromSignal(String paramName) {
@@ -246,17 +233,12 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromSignal(String signalName, String paramName) {
-    try {
-      return executor
-          .submit(() -> fromSignal(signalName, paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e,
-          "getFromSignal throws an exception for signalName=[%s], paramName=[%s]",
-          signalName,
-          paramName);
-    }
+    return withTimeout(
+        "getFromSignal",
+        () -> fromSignal(signalName, paramName),
+        "throws an exception for signalName=[%s], paramName=[%s]",
+        signalName,
+        paramName);
   }
 
   // get signal or return a default string value if there is an exception.
@@ -291,17 +273,12 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromSignalDependency(String signalDependencyIndex, String paramName) {
-    try {
-      return executor
-          .submit(() -> fromSignalDependency(signalDependencyIndex, paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e,
-          "getFromSignalDependency throws an exception for signalDependencyIndex=[%s], paramName=[%s]",
-          signalDependencyIndex,
-          paramName);
-    }
+    return withTimeout(
+        "getFromSignalDependency",
+        () -> fromSignalDependency(signalDependencyIndex, paramName),
+        "throws an exception for signalDependencyIndex=[%s], paramName=[%s]",
+        signalDependencyIndex,
+        paramName);
   }
 
   private Object fromSignalDependency(String signalDependencyIndex, String paramName) {
@@ -340,18 +317,13 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromForeach(String foreachStepId, String stepId, String paramName) {
-    try {
-      return executor
-          .submit(() -> fromForeach(foreachStepId, stepId, paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e,
-          "getFromForeach throws an exception for foreachStepId=[%s], stepId=[%s], paramName=[%s]",
-          foreachStepId,
-          stepId,
-          paramName);
-    }
+    return withTimeout(
+        "getFromForeach",
+        () -> fromForeach(foreachStepId, stepId, paramName),
+        "throws an exception for foreachStepId=[%s], stepId=[%s], paramName=[%s]",
+        foreachStepId,
+        stepId,
+        paramName);
   }
 
   private Object fromForeach(String foreachStepId, String stepId, String paramName) {
@@ -405,18 +377,13 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Object getFromSubworkflow(String subworkflowStepId, String stepId, String paramName) {
-    try {
-      return executor
-          .submit(() -> fromSubworkflow(subworkflowStepId, stepId, paramName))
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e,
-          "getFromSubworkflow throws an exception for subworkflowStepId=[%s], stepId=[%s], paramName=[%s]",
-          subworkflowStepId,
-          stepId,
-          paramName);
-    }
+    return withTimeout(
+        "getFromSubworkflow",
+        () -> fromSubworkflow(subworkflowStepId, stepId, paramName),
+        "throws an exception for subworkflowStepId=[%s], stepId=[%s], paramName=[%s]",
+        subworkflowStepId,
+        stepId,
+        paramName);
   }
 
   private Object fromSubworkflow(String subworkflowStepId, String stepId, String paramName) {
@@ -447,28 +414,23 @@ public class MaestroParamExtension extends AbstractParamExtension {
   }
 
   Long nextUniqueId() {
-    try {
-      Thread.sleep(ThreadLocalRandom.current().nextInt(RANDOM_JITTER_DELAY));
-      return executor
-          .submit(stepInstanceDao::getNextUniqueId)
-          .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (Exception e) {
-      throw new MaestroInternalError(e, "nextUniqueId throws an exception");
-    }
+    return withTimeout(
+        "nextUniqueId",
+        () -> {
+          Thread.sleep(ThreadLocalRandom.current().nextInt(RANDOM_JITTER_DELAY));
+          return stepInstanceDao.getNextUniqueId();
+        },
+        "throws an exception");
   }
 
   Object getFromInstance(String fieldName) {
-    try {
-      Object ret =
-          executor
-              .submit(() -> fromInstance(fieldName))
-              .get(TIMEOUT_IN_MILLIS, TimeUnit.MILLISECONDS);
-      // As param does not allow null, using empty space indicates unset for now.
-      return ret == null ? "" : ret;
-    } catch (Exception e) {
-      throw new MaestroInternalError(
-          e, "getFromInstance throws an exception for fieldName=[%s]", fieldName);
-    }
+    Object ret =
+        withTimeout(
+            "getFromInstance",
+            () -> fromInstance(fieldName),
+            "throws an exception for fieldName=[%s]", fieldName);
+    // As param does not allow null, using empty space indicates unset for now.
+    return ret == null ? "" : ret;
   }
 
   private Object fromInstance(String fieldName) {
@@ -539,5 +501,48 @@ public class MaestroParamExtension extends AbstractParamExtension {
         throw new MaestroValidationException(
             "Invalid field name [%s] for getFromStep call", fieldName);
     }
+  }
+
+  private <T> T withTimeout(
+      String callName, Callable<T> task, String errorContextFmt, Object... errorContextArgs) {
+    try (var scope =
+        new StructuredTaskScope.ShutdownOnFailure(
+            "maestro-param-ext", Thread.ofVirtual().factory())) {
+      StructuredTaskScope.Subtask<T> subtask = scope.fork(task);
+      try {
+        scope.joinUntil(Instant.now().plusMillis(TIMEOUT_IN_MILLIS));
+      } catch (TimeoutException e) {
+        scope.shutdown();
+        Object[] args = prependTimeoutArg(errorContextArgs);
+        throw new MaestroInternalError(
+            e, callName + " timed out after %d ms " + errorContextFmt, args);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        scope.shutdown();
+        throw new MaestroInternalError(
+            e, callName + " interrupted " + errorContextFmt, errorContextArgs);
+      }
+      try {
+        scope.throwIfFailed();
+      } catch (Exception e) {
+        throw new MaestroInternalError(e, callName + " " + errorContextFmt, errorContextArgs);
+      }
+      try {
+        return subtask.get();
+      } catch (Exception e) {
+        throw new MaestroInternalError(e, callName + " " + errorContextFmt, errorContextArgs);
+      }
+    } catch (MaestroInternalError e) {
+      throw e;
+    } catch (Exception e) {
+      throw new MaestroInternalError(e, callName + " " + errorContextFmt, errorContextArgs);
+    }
+  }
+
+  private static Object[] prependTimeoutArg(Object[] args) {
+    Object[] out = new Object[args.length + 1];
+    out[0] = TIMEOUT_IN_MILLIS;
+    System.arraycopy(args, 0, out, 1, args.length);
+    return out;
   }
 }
